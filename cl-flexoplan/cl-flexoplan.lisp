@@ -142,6 +142,26 @@
   * goal12
   * goal13")
 
+(defun valid-map-p (lst)
+  (equal (length lst)
+	 (length (remove-duplicates (mapcar #'cadr lst) :test #'equal))))
+
+(defun maximal-map (alist-o-alists)
+  (let (res max)
+    (labels ((rec (acc lst)
+	       ;; (format t "~a~%" acc)
+	       (if (not lst)
+		   (if (valid-map-p acc)
+		       (let ((score (apply #'+ (mapcar #'caddr acc))))
+			 (if (or (not max) (>= score max))
+			     (setf max score
+				   res acc))))
+		   (iter (for elt in (cdar lst))
+			 (rec `((,(caar lst) ,(car elt) ,(cdr elt)) ,. acc)
+			      (cdr lst))))))
+      (rec (list) alist-o-alists)
+      res)))
+
 (defun most-probable-correspondance (goal-hash new-goal-lines)
   (let ((proximity (list)))
     (iter (for (id goal) in-hashtable goal-hash)
@@ -149,12 +169,21 @@
 	  (let ((micro-res (assoc id proximity :test #'equal)))
 	    (iter (for (n-spaces status title) in new-goal-lines)
 		  (for lineno from 0)
-		  (push `(,lineno . ,(/ (lcs-length title (goal-title goal))
-					(1+ (abs (- (length title) (length (goal-title goal)))))))
-			(cdr micro-res)))))
+		  (let* ((lcs-len (lcs-length title (goal-title goal)))
+			 (prox (/ lcs-len
+				  (1+ (abs (- (+ (length title)
+						 (length (goal-title goal)))
+					      (* 2 lcs-len)))))))
+		    (if (> prox 1)
+			(push `(,lineno . ,prox) (cdr micro-res)))))))
     proximity))
 	  
 
 (defun hash->assoc (hash)
   (iter (for (key val) in-hashtable hash)
 	(collect `(,key . ,val))))
+
+;; OK, now I have a map between lines and ids.
+;; I should modify ids found, create new ones, where appropriate
+;; delete missing ones
+;; and rearrange tree structure
