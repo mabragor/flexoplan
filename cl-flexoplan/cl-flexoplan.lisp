@@ -109,12 +109,52 @@
 					  (cadr x))
 					rest-goals))))
 
+(defun p (x)
+  (format t "~a~%" x)
+  x)
+
+;; longest common subsequence
+(defun lcs-length (str1 str2)
+  (let ((c (make-array `(,(1+ (length str1)) ,(1+ (length str2))) :initial-element 0)))
+    (iter (for i from 1 to (length str1))
+	  (iter (for j from 1 to (length str2))
+		(setf (aref c i j) (if (char= (char str1 (1- i))
+					      (char str2 (1- j)))
+				       (1+ (aref c (1- i) (1- j)))
+				       (max (aref c (1- i) j)
+					    (aref c i (1- j)))))))
+    ;; (format t "~a~%" c)
+    (aref c (length str1) (length str2))))
+
+(defparameter test-goals (make-hash-table :test #'equal))
+(setf (gethash 1 test-goals) (make-instance 'goal :title "project" :id 1))
+(setf (gethash 2 test-goals) (make-instance 'goal :title "goal1" :id 2))
+(setf (gethash 3 test-goals) (make-instance 'goal :title "goal2" :id 3))
+(setf (gethash 4 test-goals) (make-instance 'goal :title "goal3" :id 4))
+
 (defparameter new-plan
   "* project
-  * goal1
+  * goal0
   * goal2
   * goal3
 *project2
   * goal11
   * goal12
   * goal13")
+
+(defun most-probable-correspondance (goal-hash new-goal-lines)
+  (let ((proximity (list)))
+    (iter (for (id goal) in-hashtable goal-hash)
+	  (push `(,id . ,(list)) proximity)
+	  (let ((micro-res (assoc id proximity :test #'equal)))
+	    (iter (for (n-spaces status title) in new-goal-lines)
+		  (for lineno from 0)
+		  (push `(,lineno . ,(/ (lcs-length title (goal-title goal))
+					(1+ (abs (- (length title) (length (goal-title goal)))))))
+			(cdr micro-res)))))
+    proximity))
+	  
+
+(defun hash->assoc (hash)
+  (iter (for (key val) in-hashtable hash)
+	(collect `(,key . ,val))))

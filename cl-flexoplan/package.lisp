@@ -1,5 +1,5 @@
 ;;;; package.lisp
 
 (defpackage #:cl-flexoplan
-  (:use #:cl #:defmacro-enhance #:iterate #:esrap))
+  (:use #:cl #:defmacro-enhance #:iterate #:esrap #:rutils.string))
 
