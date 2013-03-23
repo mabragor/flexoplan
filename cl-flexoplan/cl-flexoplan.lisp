@@ -4,49 +4,52 @@
 
 (cl-interpol:enable-interpol-syntax)
 
-(defparameter last-id -1)
-(defparameter goals (make-hash-table :test #'equal))
+(defparameter *last-id* -1)
+(defparameter *goals* (make-hash-table :test #'equal))
 
 ;;; Now we implement simple in-memory storage of these "goals" (know as "tickets" elsewhere).
 (defclass goal ()
   ((id :initform (incf last-id) :initarg :id :accessor goal-id)
    (title :initform (error "Title should be specified") :initarg :title :accessor goal-title)
    (description :initform nil :initarg :description :accessor goal-description)
-   (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
+   ;; (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
    (status :initform "open" :initarg :status :accessor goal-status)
    (priority :initform  5 :initarg :priority :accessor goal-priority)))
 
 (defun drop-all-goals ()
   (setf last-id -1)
-  (clrhash goals))
+  (clrhash *goals*))
 
-(defun add-goal (title &optional append-to)
+(defun add-goal (title) ; &optional append-to)
   "For now very naive version of ADD-GOAL."
   (let ((goal (make-instance 'goal :title title)))
-    (setf (gethash (goal-id goal) goals) goal)
-    (if append-to
-	(push goal (goal-subgoals (gethash append-to goals))))
+    (setf (gethash (goal-id goal) *goals*) goal)
+    ;; (if append-to
+    ;; 	(push goal (goal-subgoals (gethash append-to *goals*))))
     (goal-id goal)))
 
 (defparameter indent 0)
 
 (defun display-goal (goal)
-  (format nil "~a* ~a~a~%~{~a~}"
+  (format nil "~a* ~a~a~%" ; ~{~a~}"
 	  (make-string indent :initial-element #\space)
 	  (if (not (equal (goal-status goal) "open"))
 	      #?"($((goal-status goal))) "
 	      "")
-	  (goal-title goal)
-	  (let ((indent (+ indent 2)))
-	    (mapcar #'display-goal (reverse (goal-subgoals goal))))))
-	      
+	  (goal-title goal)))
+	  ;; (let ((indent (+ indent 2)))
+	  ;;   (mapcar #'display-goal (reverse (goal-subgoals goal))))))
 
-#+nil
-(progn
-  (let ((master-id (add-goal "Сделать дело")))
-    (add-goal "Сделать раз" master-id)
-    (add-goal "Сделать два" master-id)
-    (add-goal "Сделать три" master-id)))
+(defun display-all-goals ()
+  (with-output-to-string (stream)
+    (iter (for (key val) in-hashtable *goals*)
+	  (format stream (display-goal val)))))
+
+(defun make-start-test-goal-set (&optional (n 3))
+  (drop-all-goals)
+  (add-goal "Make a Deed")
+  (iter (for i from 1 to n)
+	(add-goal (format nil "Do punkt #~a" i))))
 
 (defvar *goal-template-rules* (make-hash-table))
 
@@ -103,8 +106,9 @@
 		(declare (ignore ast wh1 wh2))
 		`(,n-spaces ,status ,title)))
 
-(define-rule goal-chart (and goal (* (and #\newline goal)))
-  (:destructure (first-goal rest-goals)
+(define-rule goal-chart (and goal (* (and #\newline goal)) (? #\newline))
+  (:destructure (first-goal rest-goals newline)
+		(declare (ignore newline))
 		`(,first-goal ,@(mapcar (lambda (x)
 					  (cadr x))
 					rest-goals))))
@@ -162,7 +166,7 @@
       (rec (list) alist-o-alists)
       res)))
 
-(defun most-probable-correspondance (goal-hash new-goal-lines)
+(defun most-probable-correspondance (new-goal-lines &optional (goal-hash *goals*))
   (let ((proximity (list)))
     (iter (for (id goal) in-hashtable goal-hash)
 	  (push `(,id . ,(list)) proximity)
@@ -176,7 +180,7 @@
 					      (* 2 lcs-len)))))))
 		    (if (> prox 1)
 			(push `(,lineno . ,prox) (cdr micro-res)))))))
-    proximity))
+    (maximal-map proximity)))
 	  
 
 (defun hash->assoc (hash)
@@ -187,3 +191,6 @@
 ;; I should modify ids found, create new ones, where appropriate
 ;; delete missing ones
 ;; and rearrange tree structure
+
+(defun interpret-input (input)
+  (most-probable-correspondance (goal-template-parse 'goal-chart input)))
