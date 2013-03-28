@@ -41,13 +41,6 @@
 	    (mapcar #'display-goal (reverse (goal-subgoals goal))))))
 	      
 
-#+nil
-(progn
-  (let ((master-id (add-goal "Сделать дело")))
-    (add-goal "Сделать раз" master-id)
-    (add-goal "Сделать два" master-id)
-    (add-goal "Сделать три" master-id)))
-
 (defvar *goal-template-rules* (make-hash-table))
 
 (defmacro with-goal-template-rules (&body body)
@@ -158,3 +151,18 @@
 (defun hash->assoc (hash)
   (iter (for (key val) in-hashtable hash)
 	(collect `(,key . ,val))))
+
+
+;; OK, so basically I need to write couple of common-lisp functions, which I'll call from emacs
+
+(let ((count 0))
+  (defun emacs-incf ()
+    (format nil "~a~%" (incf count)))
+  (defun emacs-decf ()
+    (format nil "~a~%" (decf count))))
+
+(defparameter *flexoplan-port* 4006)
+
+(defun start-server (&optional (port *flexoplan-port*))
+  (swank:create-server :port port))
+  
