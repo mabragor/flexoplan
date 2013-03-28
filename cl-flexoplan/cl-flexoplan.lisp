@@ -40,9 +40,19 @@
 	  ;; (let ((indent (+ indent 2)))
 	  ;;   (mapcar #'display-goal (reverse (goal-subgoals goal))))))
 
-(defun display-all-goals ()
+(defparameter displayed-goals nil
+  "Map between lines and ids of currently displayed goals.")
+(defparameter cur-line 0
+  "Line, which we are currently trying to display.")
+
+(defun display-goals-flat (&optional
+			     (predicate #'identity))
   (with-output-to-string (stream)
     (iter (for (key val) in-hashtable *goals*)
+	  (if (not (funcall predicate val))
+	      (next-iteration))
+	  (push `(,cur-line . ,key) displayed-goals)
+	  (incf cur-line)
 	  (format stream (display-goal val)))))
 
 (defun make-start-test-goal-set (&optional (n 3))
@@ -132,8 +142,8 @@
 
 (defparameter test-goals (make-hash-table :test #'equal))
 (setf (gethash 1 test-goals) (make-instance 'goal :title "project" :id 1))
-(setf (gethash 2 test-goals) (make-instance 'goal :title "goal1" :id 2))
-(setf (gethash 3 test-goals) (make-instance 'goal :title "goal2" :id 3))
+(setf (gethash 2 test-goals) (make-instance 'goal :title "goal1" :id 2 :status "donebut"))
+(setf (gethash 3 test-goals) (make-instance 'goal :title "goal2" :id 3 :status "done"))
 (setf (gethash 4 test-goals) (make-instance 'goal :title "goal3" :id 4))
 
 (defparameter new-plan
@@ -202,6 +212,25 @@
     (format nil "~a~%" (incf count)))
   (defun emacs-decf ()
     (format nil "~a~%" (decf count))))
+
+(defun emacs-show-all ()
+  "Show all goals there are."
+  (setf displayed-goals nil
+	cur-line 0)
+  (display-goals-flat))
+
+(defun emacs-show-notdone (&optional strict-p)
+  "Show all goals that are not done."
+  (setf displayed-goals nil
+	cur-line 0)
+  (display-goals-flat (if strict-p
+			  (lambda (x)
+			    (not (equal (goal-status x)
+					"done")))
+			  (lambda (x)
+			    (not (cl-ppcre:all-matches "done"
+						       (goal-status x)))))))
+  
 
 (defparameter *flexoplan-port* 4006)
 

@@ -19,6 +19,7 @@
   
 
 (defun flexoplan-incf ()
+  (interactive)
   (with-current-buffer "*flexoplan*"
     (delete-region (point-min) (point-max))
     (goto-char (point-min))
@@ -26,25 +27,44 @@
 
 
 (defun flexoplan-decf ()
+  (interactive)
   (with-current-buffer "*flexoplan*"
     (delete-region (point-min) (point-max))
     (goto-char (point-min))
     (insert (slime-eval '(cl-flexoplan::emacs-decf)))))
 
+(defmacro flexoplan-redraw (&rest body)
+  `(with-current-buffer "*flexoplan*"
+     (delete-region (point-min) (point-max))
+     (goto-char (point-min))
+     ,@body
+     (goto-char (point-min))))
 
-(defvar flexoplan-mode-hook nil)
 
-(defvar flexoplan-mode-map nil)
+(defun flexoplan-show-all ()
+  "Show all the goals there are."
+  (interactive)
+  (flexoplan-redraw
+   (insert (slime-eval '(cl-flexoplan::emacs-show-all)))))
+  
+(defun flexoplan-show-notdone (&optional strict-p)
+  "Show all notdone goals. C-u determines, whether to show donebut-goals."
+  (interactive "P")
+  (flexoplan-redraw
+   (insert (slime-eval `(cl-flexoplan::emacs-show-notdone ,(if strict-p t))))))
 
-(if flexoplan-mode-map
-    nil
-  (setq flexoplan-mode-map (make-sparse-keymap)))
+
+(require 'derived)
+
+(define-derived-mode flexoplan-mode text-mode "Flexoplan"
+  "Major mode for interaction with CL-FLEXOPLAN planner.
+Special commands:
+  \\flexoplan-mode-map}"
+  )
+(define-key flexoplan-mode-map "\C-ci" 'flexoplan-incf)
+(define-key flexoplan-mode-map "\C-cd" 'flexoplan-decf)
+(define-key flexoplan-mode-map "\C-cs" 'flexoplan-show-notdone)
+(define-key flexoplan-mode-map "\C-cS" 'flexoplan-show-all)
 
 (provide 'flexoplan)
 
-(flexoplan-connect)
-
-flexoplan-connection
-
-;; OK, now I need a function, that creates a buffer
-;; Now I need to write a mode, to tie it automatically to buffer and to write a keybindins for this mode
