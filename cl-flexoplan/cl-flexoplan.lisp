@@ -4,42 +4,52 @@
 
 (cl-interpol:enable-interpol-syntax)
 
-(defparameter last-id -1)
-(defparameter goals (make-hash-table :test #'equal))
+(defparameter *last-id* -1)
+(defparameter *goals* (make-hash-table :test #'equal))
 
 ;;; Now we implement simple in-memory storage of these "goals" (know as "tickets" elsewhere).
 (defclass goal ()
   ((id :initform (incf last-id) :initarg :id :accessor goal-id)
    (title :initform (error "Title should be specified") :initarg :title :accessor goal-title)
    (description :initform nil :initarg :description :accessor goal-description)
-   (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
+   ;; (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
    (status :initform "open" :initarg :status :accessor goal-status)
    (priority :initform  5 :initarg :priority :accessor goal-priority)))
 
 (defun drop-all-goals ()
   (setf last-id -1)
-  (clrhash goals))
+  (clrhash *goals*))
 
-(defun add-goal (title &optional append-to)
+(defun add-goal (title) ; &optional append-to)
   "For now very naive version of ADD-GOAL."
   (let ((goal (make-instance 'goal :title title)))
-    (setf (gethash (goal-id goal) goals) goal)
-    (if append-to
-	(push goal (goal-subgoals (gethash append-to goals))))
+    (setf (gethash (goal-id goal) *goals*) goal)
+    ;; (if append-to
+    ;; 	(push goal (goal-subgoals (gethash append-to *goals*))))
     (goal-id goal)))
 
 (defparameter indent 0)
 
 (defun display-goal (goal)
-  (format nil "~a* ~a~a~%~{~a~}"
+  (format nil "~a* ~a~a~%" ; ~{~a~}"
 	  (make-string indent :initial-element #\space)
 	  (if (not (equal (goal-status goal) "open"))
 	      #?"($((goal-status goal))) "
 	      "")
-	  (goal-title goal)
-	  (let ((indent (+ indent 2)))
-	    (mapcar #'display-goal (reverse (goal-subgoals goal))))))
-	      
+	  (goal-title goal)))
+	  ;; (let ((indent (+ indent 2)))
+	  ;;   (mapcar #'display-goal (reverse (goal-subgoals goal))))))
+
+(defun display-all-goals ()
+  (with-output-to-string (stream)
+    (iter (for (key val) in-hashtable *goals*)
+	  (format stream (display-goal val)))))
+
+(defun make-start-test-goal-set (&optional (n 3))
+  (drop-all-goals)
+  (add-goal "Make a Deed")
+  (iter (for i from 1 to n)
+	(add-goal (format nil "Do punkt #~a" i))))
 
 (defvar *goal-template-rules* (make-hash-table))
 
@@ -96,8 +106,9 @@
 		(declare (ignore ast wh1 wh2))
 		`(,n-spaces ,status ,title)))
 
-(define-rule goal-chart (and goal (* (and #\newline goal)))
-  (:destructure (first-goal rest-goals)
+(define-rule goal-chart (and goal (* (and #\newline goal)) (? #\newline))
+  (:destructure (first-goal rest-goals newline)
+		(declare (ignore newline))
 		`(,first-goal ,@(mapcar (lambda (x)
 					  (cadr x))
 					rest-goals))))
@@ -135,23 +146,54 @@
   * goal12
   * goal13")
 
-(defun most-probable-correspondance (goal-hash new-goal-lines)
+(defun valid-map-p (lst)
+  (equal (length lst)
+	 (length (remove-duplicates (mapcar #'cadr lst) :test #'equal))))
+
+(defun maximal-map (alist-o-alists)
+  (let (res max)
+    (labels ((rec (acc lst)
+	       ;; (format t "~a~%" acc)
+	       (if (not lst)
+		   (if (valid-map-p acc)
+		       (let ((score (apply #'+ (mapcar #'caddr acc))))
+			 (if (or (not max) (>= score max))
+			     (setf max score
+				   res acc))))
+		   (iter (for elt in (cdar lst))
+			 (rec `((,(caar lst) ,(car elt) ,(cdr elt)) ,. acc)
+			      (cdr lst))))))
+      (rec (list) alist-o-alists)
+      res)))
+
+(defun most-probable-correspondance (new-goal-lines &optional (goal-hash *goals*))
   (let ((proximity (list)))
     (iter (for (id goal) in-hashtable goal-hash)
 	  (push `(,id . ,(list)) proximity)
 	  (let ((micro-res (assoc id proximity :test #'equal)))
 	    (iter (for (n-spaces status title) in new-goal-lines)
 		  (for lineno from 0)
-		  (push `(,lineno . ,(/ (lcs-length title (goal-title goal))
-					(1+ (abs (- (length title) (length (goal-title goal)))))))
-			(cdr micro-res)))))
-    proximity))
+		  (let* ((lcs-len (lcs-length title (goal-title goal)))
+			 (prox (/ lcs-len
+				  (1+ (abs (- (+ (length title)
+						 (length (goal-title goal)))
+					      (* 2 lcs-len)))))))
+		    (if (> prox 1)
+			(push `(,lineno . ,prox) (cdr micro-res)))))))
+    (maximal-map proximity)))
 	  
 
 (defun hash->assoc (hash)
   (iter (for (key val) in-hashtable hash)
 	(collect `(,key . ,val))))
 
+;; OK, now I have a map between lines and ids.
+;; I should modify ids found, create new ones, where appropriate
+;; delete missing ones
+;; and rearrange tree structure
+
+(defun interpret-input (input)
+  (most-probable-correspondance (goal-template-parse 'goal-chart input)))
 
 ;; OK, so basically I need to write couple of common-lisp functions, which I'll call from emacs
 
@@ -166,3 +208,4 @@
 (defun start-server (&optional (port *flexoplan-port*))
   (swank:create-server :port port))
   
+
