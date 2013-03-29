@@ -12,10 +12,8 @@
   (interactive)
   (if (not flexoplan-connection)
       (flexoplan-connect))
-  (let ((buf (get-buffer "*flexoplan*")))
-    (if (not buf)
-	(create-buffer "*flexoplan*"))
-    (buffer-name (switch-to-buffer "*flexoplan*"))))
+  (get-buffer-create "*flexoplan*")
+  (flexoplan-switch-to-buffer))
   
 
 (defun flexoplan-incf ()
@@ -53,6 +51,32 @@
   (flexoplan-redraw
    (insert (slime-eval `(cl-flexoplan::emacs-show-notdone ,(if strict-p t))))))
 
+(defun flexoplan-change-goal-status (&optional status)
+  "Change a status of a goal on the current line to the specified one."
+  (interactive "P")
+  (save-match-data
+    (beginning-of-line)
+    (if (re-search-forward "^\\( *\\)\\*\\s-*\\(?:(\\([^)]*\\))\\)?\\s-*\\([^\n]*\\)")
+	(let* ((new-status (if status
+			       (concat "(" status ")")
+			     (if (match-string 2) "" "(done)")))
+	       (repl-line (concat (match-string 1) "* " new-status
+				  (if (not (equal new-status "")) " " "")
+				  (match-string 3))))
+	  (beginning-of-line)
+	  (kill-line)
+	  (insert repl-line)
+	  (beginning-of-line)
+	  (if (not (equal new-status ""))
+	      (re-search-forward "^ *\\*\s-*([^)]*")
+	    (end-of-line)))
+      (error "Current line does not look like a goal description."))))
+      
+(defun flexoplan-commit-changes ()
+  "Sends the whole buffer to the CL-FLEXOPLAN to be analyzed and
+smartly saved."
+  (interactive)
+  (slime-eval `(cl-flexoplan::emacs-commit-changes ,(buffer-string))))
 
 (require 'derived)
 
@@ -65,6 +89,14 @@ Special commands:
 (define-key flexoplan-mode-map "\C-cd" 'flexoplan-decf)
 (define-key flexoplan-mode-map "\C-cs" 'flexoplan-show-notdone)
 (define-key flexoplan-mode-map "\C-cS" 'flexoplan-show-all)
+(define-key flexoplan-mode-map "\C-x\C-s" 'flexoplan-commit-changes)
+(global-set-key "\C-c\C-f" 'flexoplan)
+
+(defun flexoplan-switch-to-buffer ()
+  (interactive)
+  (if (equal (buffer-name) "*flexoplan*")
+      (switch-to-buffer nil)
+    (switch-to-buffer "*flexoplan*")))
 
 (provide 'flexoplan)
 

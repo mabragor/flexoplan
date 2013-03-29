@@ -9,7 +9,7 @@
 
 ;;; Now we implement simple in-memory storage of these "goals" (know as "tickets" elsewhere).
 (defclass goal ()
-  ((id :initform (incf last-id) :initarg :id :accessor goal-id)
+  ((id :initform (incf *last-id*) :initarg :id :accessor goal-id)
    (title :initform (error "Title should be specified") :initarg :title :accessor goal-title)
    (description :initform nil :initarg :description :accessor goal-description)
    ;; (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
@@ -17,12 +17,12 @@
    (priority :initform  5 :initarg :priority :accessor goal-priority)))
 
 (defun drop-all-goals ()
-  (setf last-id -1)
+  (setf *last-id* -1)
   (clrhash *goals*))
 
-(defun add-goal (title) ; &optional append-to)
+(defun add-goal (title status) ; &optional append-to)
   "For now very naive version of ADD-GOAL."
-  (let ((goal (make-instance 'goal :title title)))
+  (let ((goal (make-instance 'goal :title title :status status)))
     (setf (gethash (goal-id goal) *goals*) goal)
     ;; (if append-to
     ;; 	(push goal (goal-subgoals (gethash append-to *goals*))))
@@ -33,14 +33,17 @@
 (defun display-goal (goal)
   (format nil "~a* ~a~a~%" ; ~{~a~}"
 	  (make-string indent :initial-element #\space)
-	  (if (not (equal (goal-status goal) "open"))
-	      #?"($((goal-status goal))) "
-	      "")
+	  (with-slots (status) goal
+	    (if (and status
+		     (not (equal status ""))
+		     (not (equal status "open")))
+		#?"($((goal-status goal))) "
+		""))
 	  (goal-title goal)))
 	  ;; (let ((indent (+ indent 2)))
 	  ;;   (mapcar #'display-goal (reverse (goal-subgoals goal))))))
 
-(defparameter displayed-goals nil
+(defparameter displayed-goals (make-hash-table :test #'equal)
   "Map between lines and ids of currently displayed goals.")
 (defparameter cur-line 0
   "Line, which we are currently trying to display.")
@@ -51,7 +54,7 @@
     (iter (for (key val) in-hashtable *goals*)
 	  (if (not (funcall predicate val))
 	      (next-iteration))
-	  (push `(,cur-line . ,key) displayed-goals)
+	  (setf (gethash key displayed-goals) cur-line)
 	  (incf cur-line)
 	  (format stream (display-goal val)))))
 
@@ -140,11 +143,18 @@
     ;; (format t "~a~%" c)
     (aref c (length str1) (length str2))))
 
-(defparameter test-goals (make-hash-table :test #'equal))
-(setf (gethash 1 test-goals) (make-instance 'goal :title "project" :id 1))
-(setf (gethash 2 test-goals) (make-instance 'goal :title "goal1" :id 2 :status "donebut"))
-(setf (gethash 3 test-goals) (make-instance 'goal :title "goal2" :id 3 :status "done"))
-(setf (gethash 4 test-goals) (make-instance 'goal :title "goal3" :id 4))
+(defun load-test-goals ()
+  (drop-all-goals)
+  (add-goal "project" "")
+  (add-goal "goal1" "donebut")
+  (add-goal "goal2" "done")
+  (add-goal "goal3" ""))
+
+;; (defparameter test-goals (make-hash-table :test #'equal))
+;; (setf (gethash 1 test-goals) (make-instance 'goal :title "project" :id 1))
+;; (setf (gethash 2 test-goals) (make-instance 'goal :title "goal1" :id 2 :status "donebut"))
+;; (setf (gethash 3 test-goals) (make-instance 'goal :title "goal2" :id 3 :status "done"))
+;; (setf (gethash 4 test-goals) (make-instance 'goal :title "goal3" :id 4))
 
 (defparameter new-plan
   "* project
@@ -163,14 +173,17 @@
 (defun maximal-map (alist-o-alists)
   (let (res max)
     (labels ((rec (acc lst)
-	       ;; (format t "~a~%" acc)
+	       ;; (format t "Acc: ~a~%" acc)
 	       (if (not lst)
-		   (if (valid-map-p acc)
-		       (let ((score (apply #'+ (mapcar #'caddr acc))))
-			 (if (or (not max) (>= score max))
-			     (setf max score
-				   res acc))))
-		   (iter (for elt in (cdar lst))
+		   (let ((acc-wo-removes (remove-if (lambda (x)
+						      (eql (cadr x) nil))
+						    acc)))
+		     (if (valid-map-p acc-wo-removes)
+			 (let ((score (apply #'+ (mapcar #'caddr acc-wo-removes))))
+			   (if (or (not max) (>= score max))
+			       (setf max score
+				     res acc-wo-removes)))))
+		   (iter (for elt in `((nil . 0) ,.(cdar lst)))
 			 (rec `((,(caar lst) ,(car elt) ,(cdr elt)) ,. acc)
 			      (cdr lst))))))
       (rec (list) alist-o-alists)
@@ -179,6 +192,8 @@
 (defun most-probable-correspondance (new-goal-lines &optional (goal-hash *goals*))
   (let ((proximity (list)))
     (iter (for (id goal) in-hashtable goal-hash)
+	  (if (not (gethash id displayed-goals))
+	      (next-iteration))
 	  (push `(,id . ,(list)) proximity)
 	  (let ((micro-res (assoc id proximity :test #'equal)))
 	    (iter (for (n-spaces status title) in new-goal-lines)
@@ -188,8 +203,10 @@
 				  (1+ (abs (- (+ (length title)
 						 (length (goal-title goal)))
 					      (* 2 lcs-len)))))))
+		    ;; (format t "Prox: ~a~%" prox)
 		    (if (> prox 1)
 			(push `(,lineno . ,prox) (cdr micro-res)))))))
+    ;; (format t "Proximity: ~a~%" proximity)
     (maximal-map proximity)))
 	  
 
@@ -203,7 +220,21 @@
 ;; and rearrange tree structure
 
 (defun interpret-input (input)
-  (most-probable-correspondance (goal-template-parse 'goal-chart input)))
+  (let (modified-ids removed-ids new-ids)
+    (let* ((new-lines (goal-template-parse 'goal-chart input))
+	   (corr (most-probable-correspondance new-lines)))
+      ;; (format t "New lines: ~a~%" new-lines)
+      ;; (format t "Corr: ~a~%" corr)
+      (iter (for (id lineno nil) in corr)
+	    (push `(,id ,@(nth lineno new-lines)) modified-ids))
+      (iter (for (key nil) in-hashtable displayed-goals)
+	    (if (not (find key corr :key #'car :test #'equal))
+		(push key removed-ids)))
+      (iter (for line in new-lines)
+	    (for lineno from 0)
+	    (if (not (find lineno corr :key #'cadr :test #'equal))
+		(push `(,lineno ,. line) new-ids)))
+      (values corr modified-ids removed-ids new-ids))))
 
 ;; OK, so basically I need to write couple of common-lisp functions, which I'll call from emacs
 
@@ -215,14 +246,14 @@
 
 (defun emacs-show-all ()
   "Show all goals there are."
-  (setf displayed-goals nil
-	cur-line 0)
+  (clrhash displayed-goals)
+  (setf cur-line 0)
   (display-goals-flat))
 
 (defun emacs-show-notdone (&optional strict-p)
   "Show all goals that are not done."
-  (setf displayed-goals nil
-	cur-line 0)
+  (clrhash displayed-goals)
+  (setf cur-line 0)
   (display-goals-flat (if strict-p
 			  (lambda (x)
 			    (not (equal (goal-status x)
@@ -231,6 +262,24 @@
 			    (not (cl-ppcre:all-matches "done"
 						       (goal-status x)))))))
   
+(defun emacs-commit-changes (new-goals-text)
+  (format t new-goals-text)
+  (multiple-value-bind (corr modified removed new) (interpret-input new-goals-text)
+    (format t "corr: ~a~%" corr)
+    (format t "modified: ~a~%" modified)
+    (format t "removed: ~a~%" removed)
+    (format t "new: ~a~%" new)
+    (iter (for id in removed)
+	  (remhash id *goals*)
+	  (remhash id displayed-goals))
+    (iter (for (id new-indent new-status new-title) in modified)
+	  (with-slots (title status) (gethash id *goals*)
+	    (setf title new-title
+		  status new-status)))
+    (iter (for (new-lineno new-indent new-status new-title) in new)
+	  (let ((new-id (add-goal new-title new-status)))
+	    (setf (gethash new-id displayed-goals) new-lineno)))))
+
 
 (defparameter *flexoplan-port* 4006)
 
