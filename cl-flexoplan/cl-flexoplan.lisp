@@ -343,7 +343,7 @@
       (create-database connection-spec :database-type database-type)))
 
 (defun %connect (&optional force-reconnect)
-  (%create-database '("localhost" "flexoplan" "root" "")
+  (%create-database '("localhost" "flexoplan" "root" "trga%")
 		    :database-type :mysql
 		    :if-not-exists t)
   (when (and force-reconnect db-connection)
@@ -351,7 +351,7 @@
     (setf db-connection nil))
   (when (not db-connection)
     (setf db-connection (clsql:connect '("localhost" "flexoplan" "root" "trga%") :database-type :mysql)))
-  db-connection)
+  t)
 
 (defun init-tables ()
   (create-view-from-class 'goal))

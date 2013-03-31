@@ -17,7 +17,9 @@
   (get-buffer-create "*flexoplan*")
   (with-current-buffer "*flexoplan*"
     (flexoplan-mode)
-    (setq slime-buffer-connection flexoplan-connection))
+    (setq slime-buffer-connection flexoplan-connection)
+    (slime-eval '(cl-flexoplan::%connect))
+    (slime-eval '(cl-user::setf cl-flexoplan::*last-id* (cl-flexoplan::get-last-id-from-database))))
   (flexoplan-switch-to-buffer))
   
 
@@ -81,18 +83,20 @@
   "Sends the whole buffer to the CL-FLEXOPLAN to be analyzed and
 smartly saved."
   (interactive)
-  (slime-eval `(cl-flexoplan::emacs-commit-changes ,(buffer-string))))
+  (slime-eval `(cl-flexoplan::emacs-commit-changes ,(buffer-string)))
+  (message "Changes saved"))
 
 (require 'derived)
 
 (define-derived-mode flexoplan-mode text-mode "Flexoplan"
   "Major mode for interaction with CL-FLEXOPLAN planner.
 Special commands:
-  \\flexoplan-mode-map}"
+  \\{flexoplan-mode-map}"
   (make-local-variable 'slime-buffer-connection))
+  
 
-(define-key flexoplan-mode-map "\C-ci" 'flexoplan-incf)
-(define-key flexoplan-mode-map "\C-cd" 'flexoplan-decf)
+;; (define-key flexoplan-mode-map "\C-ci" 'flexoplan-incf)
+;; (define-key flexoplan-mode-map "\C-cd" 'flexoplan-decf)
 (define-key flexoplan-mode-map "\C-cs" 'flexoplan-show-notdone)
 (define-key flexoplan-mode-map "\C-cS" 'flexoplan-show-all)
 (define-key flexoplan-mode-map "\C-c\C-c" 'flexoplan-change-goal-status)
