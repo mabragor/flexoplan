@@ -3,18 +3,51 @@
 (in-package #:cl-flexoplan)
 
 (cl-interpol:enable-interpol-syntax)
+(file-enable-sql-reader-syntax)
 
 (defparameter *last-id* -1)
 (defparameter *goals* (make-hash-table :test #'equal))
 
 ;;; Now we implement simple in-memory storage of these "goals" (know as "tickets" elsewhere).
-(defclass goal ()
-  ((id :initform (incf *last-id*) :initarg :id :accessor goal-id)
-   (title :initform (error "Title should be specified") :initarg :title :accessor goal-title)
-   (description :initform nil :initarg :description :accessor goal-description)
+(def-view-class goal ()
+  ((goal-id 
+    :db-kind :key
+    :db-constraints :not-null
+    :type integer
+    :initarg :id
+    :accessor goal-id
+    :initform (incf *last-id*))
+   (parent-goal-id
+    :type integer
+    :initarg :pid
+    :initform nil
+    :accessor pid)
+   (title :initform (format nil "untitled")
+	  :type (string 255)
+	  :initarg :title
+	  :accessor goal-title)
+   (status :type (string 255)
+	   :initform nil
+	   :initarg :status
+	   :accessor goal-status)
+   ;; (description :initform nil :initarg :description :accessor goal-description)
    ;; (subgoals :initform nil :initarg :subgoals :accessor goal-subgoals)
-   (status :initform "open" :initarg :status :accessor goal-status)
-   (priority :initform  5 :initarg :priority :accessor goal-priority)))
+   ;; (priority :initform  5 :initarg :priority :accessor goal-priority)))
+   (master-goal
+    :reader master-goal
+    :db-kind :join
+    :db-info (:join-class goal
+			  :home-key parent-goal-id
+			  :foreign-key goal-id
+			  :set nil))
+   (sub-goals
+    :reader sub-goals
+    :db-kind :join
+    :db-info (:join-class goal
+			  :home-key goal-id
+			  :foreign-key parent-goal-id
+			  :set t)))
+  (:base-table goals))
 
 (defun drop-all-goals ()
   (setf *last-id* -1)
@@ -270,15 +303,19 @@
     (format t "removed: ~a~%" removed)
     (format t "new: ~a~%" new)
     (iter (for id in removed)
+	  (delete-instance-records (gethash id *goals*) :database db-connection)
 	  (remhash id *goals*)
 	  (remhash id displayed-goals))
     (iter (for (id new-indent new-status new-title) in modified)
-	  (with-slots (title status) (gethash id *goals*)
-	    (setf title new-title
-		  status new-status)))
+	  (let ((goal (gethash id *goals*)))
+	    (with-slots (title status) goal
+	      (setf title new-title
+		    status new-status))
+	    (update-records-from-instance goal :database db-connection)))
     (iter (for (new-lineno new-indent new-status new-title) in new)
 	  (let ((new-id (add-goal new-title new-status)))
-	    (setf (gethash new-id displayed-goals) new-lineno)))))
+	    (setf (gethash new-id displayed-goals) new-lineno)
+	    (update-records-from-instance (gethash new-id *goals*) :database db-connection)))))
 
 
 (defparameter *flexoplan-port* 4006)
@@ -286,4 +323,75 @@
 (defun start-server (&optional (port *flexoplan-port*))
   (swank:create-server :port port))
   
+(defparameter db-connection nil)
 
+;; Utilities that connect to the database
+
+(defun %probe-database (connection-spec &key database-type)
+  (handler-case (probe-database connection-spec :database-type database-type)
+    (sql-connection-error (e)
+      (if (equal (sql-error-error-id e) 1049)
+	  nil
+	  (error e)))))
+
+(defun %create-database
+    (connection-spec &key database-type
+		       if-not-exists)
+  (if (or (not if-not-exists)
+	  (not (%probe-database connection-spec
+				:database-type database-type)))
+      (create-database connection-spec :database-type database-type)))
+
+(defun %connect (&optional force-reconnect)
+  (%create-database '("localhost" "flexoplan" "root" "")
+		    :database-type :mysql
+		    :if-not-exists t)
+  (when (and force-reconnect db-connection)
+    (disconnect :database db-connection :error nil)
+    (setf db-connection nil))
+  (when (not db-connection)
+    (setf db-connection (clsql:connect '("localhost" "flexoplan" "root" "trga%") :database-type :mysql)))
+  db-connection)
+
+(defun init-tables ()
+  (create-view-from-class 'goal))
+
+(defun get-last-id-from-database ()
+  (let ((res (select [max [goal-id]] :from [goals])))
+    (or (caar res) -1)))
+
+(defun load-project-from-database (&optional project-name)
+  "Load into memory all goals, that are descendants of a given project-goal.
+PROJECT-NAME, if given, should be EQUAL to TITLE of some goal.
+If project-name is NIL, all goals are loaded."
+  (drop-all-goals)
+  (setf *last-id* (get-last-id-from-database))
+  (let ((all-goals (recursively-load-goals-from-database 
+		    (let ((it (car (select 'goal :where [= [slot-value 'goal 'title] project-name]))))
+		      (if it
+			  (goal-id (car it)))))))
+    (iter (for goal in all-goals)
+	  (setf (gethash (goal-id goal) *goals*) goal))
+    t))
+
+(defun load-goals-from-database (&optional (master-goal-id nil supplied-p))
+  "Load from a database all the goals, whose master goal is has a MASTER-GOAL-ID.
+If MASTER-GOAL-ID is not specified, fetches all goals.
+If it explicitly is specified as NIL, then fetches only top-level
+goals (for which MASTER-GOAL-ID is NULL)."
+  (mapcar #'car
+	  (cond
+	    ((not supplied-p) (select 'goal :database db-connection))
+	    ((not master-goal-id) (select 'goal
+					  :where [null [slot-value 'goal 'parent-goal-id]]
+					  :database db-connection))
+	    (t (select 'goal
+		       :where [= [slot-value 'goal 'parent-goal-id] master-goal-id]
+		       :database db-connection)))))
+    
+(defun recursively-load-goals-from-database (&optional master-goal-id)
+  (let ((this-level (load-goals-from-database master-goal-id)))
+    (append this-level
+	    (iter (for goal in this-level)
+		  (appending (recursively-load-goals-from-database (goal-id goal)))))))
+    

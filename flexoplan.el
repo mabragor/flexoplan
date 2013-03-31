@@ -6,13 +6,18 @@
   "Connection to the CL-FLEXOPLAN.")
 
 (defun flexoplan-connect (&optional port)
-  (setq flexoplan-connection (slime-connect "127.0.0.1" (or port 4006) nil nil)))
+  (setq flexoplan-connection
+	(slime-net-connect "127.0.0.1" (or port 4006)))
+  (slime-init-connection-state flexoplan-connection))
 
 (defun flexoplan ()
   (interactive)
   (if (not flexoplan-connection)
       (flexoplan-connect))
   (get-buffer-create "*flexoplan*")
+  (with-current-buffer "*flexoplan*"
+    (flexoplan-mode)
+    (setq slime-buffer-connection flexoplan-connection))
   (flexoplan-switch-to-buffer))
   
 
@@ -84,12 +89,16 @@ smartly saved."
   "Major mode for interaction with CL-FLEXOPLAN planner.
 Special commands:
   \\flexoplan-mode-map}"
-  )
+  (make-local-variable 'slime-buffer-connection))
+
 (define-key flexoplan-mode-map "\C-ci" 'flexoplan-incf)
 (define-key flexoplan-mode-map "\C-cd" 'flexoplan-decf)
 (define-key flexoplan-mode-map "\C-cs" 'flexoplan-show-notdone)
 (define-key flexoplan-mode-map "\C-cS" 'flexoplan-show-all)
+(define-key flexoplan-mode-map "\C-c\C-c" 'flexoplan-change-goal-status)
 (define-key flexoplan-mode-map "\C-x\C-s" 'flexoplan-commit-changes)
+(define-key flexoplan-mode-map "\C-xf" 'flexoplan-just-dump-current-plan-to-file)
+(define-key flexoplan-mode-map "\C-cp" 'flexoplan-load-project)
 (global-set-key "\C-c\C-f" 'flexoplan)
 
 (defun flexoplan-switch-to-buffer ()
@@ -97,6 +106,27 @@ Special commands:
   (if (equal (buffer-name) "*flexoplan*")
       (switch-to-buffer nil)
     (switch-to-buffer "*flexoplan*")))
+
+(defun flexoplan-just-dump-current-plan-to-file (fname)
+  "Dump a contents of the *flexoplan* buffer into specified file."
+  (interactive (list (expand-file-name (read-file-name
+					"File to save to: "
+					"~/"
+					"flexoplan-dump.txt"))))
+  (write-region "---\n" nil fname t)
+  (write-region (point-min) (point-max) fname t)
+  (write-region "...\n" nil fname t))
+					
+(defun flexoplan-load-project (&optional project-title)
+  "Load goals, belonging to specified project from the database.
+If no project specified, load all the goals."
+  (interactive (list (read-string "Project title: ")))
+  (slime-eval '(cl-flexoplan::%connect))
+  (slime-eval `(cl-flexoplan::load-project-from-database ,(if (or (not project-title)
+								  (equal project-title ""))
+							      nil
+							    project-title)))
+  (flexoplan-show-all))
 
 (provide 'flexoplan)
 
