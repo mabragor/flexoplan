@@ -8,12 +8,14 @@ It is assumed, that Emacs + Quicklisp + Slime is configured.
 It is further assumed, that MySQL server (needed for persistence) is running on a local machine on a standard socket.
 
 This being the case, when inside the Emacs, issue the following:
+
         M-x slime
         CL-USER> (ql:quickload 'cl-flexoplan)
         CL-USER> (cl-flexoplan:start-server) ; server will be started on port 4006
         C-cC-f ; this will bring you to *flexoplan* buffer, which will be already connected to CL-FLEXOPLAN backend.
 
 To add a goal, say, "do foobar" to the plan, simply write on any convenient line (in *flexoplan* buffer):
+
         * do foobar
 
 To change goal status to and from "done", type "C-cC-c", when cursor is on the line you want to mark/unmark "done".
@@ -34,6 +36,7 @@ The whole idea of the project is to make planning and tracking of one's progress
 to the process of Creation, as possible.
 
 TODO (of course, in the notation, that flexoplan understands, or will understand):
+
         * persistence
           * ability to specify host/port, where MySQL lives
           * ability to turn off persistence altogether
