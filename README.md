@@ -7,7 +7,15 @@ Consists of 2 parts: CL-FLEXOPLAN Common Lisp server and Emacs flexoplan-mode fr
 It is assumed, that Emacs + Quicklisp + Slime is configured.
 It is further assumed, that MySQL server (needed for persistence) is running on a local machine on a standard socket.
 
-This being the case, when inside the Emacs, issue the following:
+Put/symlink flexoplan.el to somewhere, where Emacs can find it (e.g. ~/emacs.d/) and
+put
+
+        (load-file "~/emacs.d/flexoplan.el")
+        (require 'flexoplan)
+
+into ~/.emacs.
+
+Now from Emacs, issue the following:
 
         M-x slime
         CL-USER> (ql:quickload 'cl-flexoplan)
@@ -43,7 +51,15 @@ TODO (of course, in the notation, that flexoplan understands, or will understand
           * ability to specify MySQL user/password
           * version control
             - when, and what changes to plan were made
-        * tree structure of a plan
+        * (done) tree structure of a plan
+          - To make a goal a subgoal of some goal, just indent it further than that goal. For example:
+              * goal 1
+                * goal 2
+              * goal 3
+            Here "goal 1" and "goal 3" are on the same level, while "goal 2" is the subgoal of "goal 1".
+          - To display and work only on some subtree on all goals (a "subproject") type
+            "C-cp" and a name of a title of a goal, with which subtree you want to work with.
+	    The whole tree of goals can be displayed by specifying blank project name, after "C-cp".
         * description field for each goal
           - This field should be somewhat elaborate description of a problem specified by the title.
             It might also include references to subgoals through titles like this
