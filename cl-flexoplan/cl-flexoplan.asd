@@ -6,7 +6,7 @@
   :author "Alexander Popolitov <popolit@gmail.com>"
   :license "GPL"
   :depends-on (#:cl-ppcre #:cl-interpol #:defmacro-enhance #:iterate #:yaclanapht  #:esrap #:rutils #:swank
-			  #:clsql #:clsql-mysql)
+			  #:clsql #:clsql-mysql #:clesh)
   :components ((:file "package")
                (:file "cl-flexoplan")))
 

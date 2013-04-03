@@ -26,6 +26,13 @@
     (slime-eval '(cl-user::setf cl-flexoplan::*last-id* (cl-flexoplan::get-last-id-from-database))))
   (flexoplan-switch-to-buffer))
   
+(defun flexoplan-setup-db-and-tables (user passwd admin-user admin-passwd)
+  (interactive (list (read-string "user to access flexoplan db: ")
+		     (read-passwd "passwd for this user: " t)
+		     (read-string "admin user to create an account: " "root")
+		     (read-passwd "passwd of admin user: ")))
+  (slime-eval `(cl-flexoplan::setup-mysql-db-and-tables ,admin-user ,admin-passwd ,user ,passwd))
+  (message "DB structure successfully created."))
 
 (defun flexoplan-incf ()
   (interactive)

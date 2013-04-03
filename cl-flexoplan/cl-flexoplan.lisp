@@ -465,4 +465,35 @@ goals (for which MASTER-GOAL-ID is NULL)."
 	  (setf (slot-value goal 'indent) indent)
 	  (collect goal)
 	  (appending (recursively-load-goals-from-database (goal-id goal) (+ 2 indent))))))
+
+(in-package #:clesh)
+
+(defun escript (str &key (program *shell*))
+  (multiple-value-bind (stdout stderr errno)
+      (script str :program program)
+    (if (zerop errno)
+	(values stdout stderr errno)
+	(error "Script exited with errno ~a: stderr: ~a" errno stderr))))
+
+(in-package #:cl-flexoplan)
+
+(defun setup-mysql-db-and-tables (admin-user admin-passwd user passwd)
+  "Setup database, user and tables, needed for persistence of goals."
+  (let ((sql-cmd #?"create database if not exists flexoplan
+    default charset = utf8;
+grant all privileges on flexoplan.* to '$(user)'@'localhost'
+    identified by '$(passwd)';"))
+    (clesh::escript #?"echo \"$(sql-cmd)\" | mysql -u$(admin-user) -p$(admin-passwd)"))
+  (let ((flexoplan-mysql-login user)
+	(flexoplan-mysql-password passwd))
+    (%connect)
+    (unwind-protect (handler-case (create-view-from-class 'goal :database db-connection)
+		      (sql-database-data-error (e)
+			(let ((it (sql-error-error-id e)))
+			  (if (equal it 1050)
+			      (warn "Table already exists, hence not created.")
+			      (error e)))))
+      (disconnect :database db-connection)
+      (setf db-connection nil))))
     
+      
