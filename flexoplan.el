@@ -18,6 +18,10 @@
   (with-current-buffer "*flexoplan*"
     (flexoplan-mode)
     (setq slime-buffer-connection flexoplan-connection)
+    (if (not (slime-eval '(cl-flexoplan::emacs-flexoplan-mysql-login)))
+	(slime-eval `(cl-flexoplan::emacs-flexoplan-mysql-login ,(read-string "MySQL login: "))))
+    (if (not (slime-eval '(cl-flexoplan::emacs-flexoplan-mysql-password)))
+	(slime-eval `(cl-flexoplan::emacs-flexoplan-mysql-password ,(read-passwd "MySQL password: "))))
     (slime-eval '(cl-flexoplan::%connect))
     (slime-eval '(cl-user::setf cl-flexoplan::*last-id* (cl-flexoplan::get-last-id-from-database))))
   (flexoplan-switch-to-buffer))

@@ -389,15 +389,39 @@
 				:database-type database-type)))
       (create-database connection-spec :database-type database-type)))
 
+(defvar flexoplan-mysql-login nil
+  "Login to MySQL, should be redefined, e.g in config.")
+(defvar flexoplan-mysql-password nil
+  "Password to MySQL, should be redefined, e.g in config.")
+
+(defun emacs-flexoplan-mysql-login (&optional (x nil x-p))
+  (if x-p
+      (setf flexoplan-mysql-login x)
+      flexoplan-mysql-login))
+(defun emacs-flexoplan-mysql-password (&optional (x nil x-p))
+  (if x-p
+      (setf flexoplan-mysql-password x)
+      flexoplan-mysql-password))
+
 (defun %connect (&optional force-reconnect)
-  (%create-database '("localhost" "flexoplan" "root" "trga%")
-		    :database-type :mysql
-		    :if-not-exists t)
+  ;; (%create-database '("localhost" "flexoplan" "root" "trga%")
+  ;; 		    :database-type :mysql
+  ;; 		    :if-not-exists t)
   (when (and force-reconnect db-connection)
     (disconnect :database db-connection :error nil)
     (setf db-connection nil))
   (when (not db-connection)
-    (setf db-connection (clsql:connect '("localhost" "flexoplan" "root" "trga%") :database-type :mysql)))
+    (setf db-connection (clsql:connect `("localhost"
+					 "flexoplan"
+					 ,(or flexoplan-mysql-login
+					      (error (strcat "You should specify MySQL login via "
+							     "FLEXOPLAN-MYSQL-LOGIN variable or via "
+							     "EMACS-FLEXOPLAN-MYSQL-LOGIN setter-function.")))
+					 ,(or flexoplan-mysql-password
+					      (error (strcat "You should specify MySQL password via "
+							     "FLEXOPLAN-MYSQL-PASSWORD variable or via "
+							     "EMACS-FLEXOPLAN-MYSQL-PASSWORD setter-function."))))
+				       :database-type :mysql)))
   t)
 
 (defun init-tables ()
