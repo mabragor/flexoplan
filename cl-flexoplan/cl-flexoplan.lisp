@@ -46,12 +46,17 @@
     :db-info (:join-class goal
 			  :home-key goal-id
 			  :foreign-key parent-goal-id
-			  :set t)))
+			  :set t))
+   (indent
+    :reader goal-indent
+    :db-kind :virtual))
   (:base-table goals))
 
 (defun drop-all-goals ()
   (setf *last-id* -1)
-  (clrhash *goals*))
+  (clrhash *goals*)
+  (clrhash displayed-goals)
+  (clrhash displayed-goal-line))
 
 (defun add-goal (title status) ; &optional append-to)
   "For now very naive version of ADD-GOAL."
@@ -61,11 +66,9 @@
     ;; 	(push goal (goal-subgoals (gethash append-to *goals*))))
     (goal-id goal)))
 
-(defparameter indent 0)
-
 (defun display-goal (goal)
   (format nil "~a* ~a~a~%" ; ~{~a~}"
-	  (make-string indent :initial-element #\space)
+	  (make-string (goal-indent goal) :initial-element #\space)
 	  (with-slots (status) goal
 	    (if (and status
 		     (not (equal status ""))
@@ -78,16 +81,22 @@
 
 (defparameter displayed-goals (make-hash-table :test #'equal)
   "Map between lines and ids of currently displayed goals.")
+(defparameter displayed-goal-line (make-hash-table :test #'equal)
+  "Map of line-number to goal-id, for goals currently displayed.")
+(defparameter displayed-project-id nil
+  "ID of a project currently being displayed.")
 (defparameter cur-line 0
   "Line, which we are currently trying to display.")
 
 (defun display-goals-flat (&optional
 			     (predicate #'identity))
   (with-output-to-string (stream)
-    (iter (for (key val) in-hashtable *goals*)
+    (iter (with i = -1)
+	  (for (key val) in-hashtable *goals*)
 	  (if (not (funcall predicate val))
 	      (next-iteration))
 	  (setf (gethash key displayed-goals) cur-line)
+	  (setf (gethash (incf i) displayed-goal-line) key)
 	  (incf cur-line)
 	  (format stream (display-goal val)))))
 
@@ -247,19 +256,15 @@
   (iter (for (key val) in-hashtable hash)
 	(collect `(,key . ,val))))
 
-;; OK, now I have a map between lines and ids.
-;; I should modify ids found, create new ones, where appropriate
-;; delete missing ones
-;; and rearrange tree structure
-
 (defun interpret-input (input)
   (let (modified-ids removed-ids new-ids)
     (let* ((new-lines (goal-template-parse 'goal-chart input))
-	   (corr (most-probable-correspondance new-lines)))
+	   (corr (most-probable-correspondance new-lines))
+	   (parents (figure-out-parents new-lines)))
       ;; (format t "New lines: ~a~%" new-lines)
       ;; (format t "Corr: ~a~%" corr)
       (iter (for (id lineno nil) in corr)
-	    (push `(,id ,@(nth lineno new-lines)) modified-ids))
+	    (push `(,id ,lineno ,@(nth lineno new-lines)) modified-ids))
       (iter (for (key nil) in-hashtable displayed-goals)
 	    (if (not (find key corr :key #'car :test #'equal))
 		(push key removed-ids)))
@@ -267,9 +272,33 @@
 	    (for lineno from 0)
 	    (if (not (find lineno corr :key #'cadr :test #'equal))
 		(push `(,lineno ,. line) new-ids)))
-      (values corr modified-ids removed-ids new-ids))))
+      (values corr modified-ids removed-ids new-ids parents))))
 
-;; OK, so basically I need to write couple of common-lisp functions, which I'll call from emacs
+(defun figure-out-parents (lines)
+  (let (parents-dyn res)
+    ;; Here's what happens, when really recursive algorithm with a dynamic variable gets
+    ;; written as an iterative one. However, I was unable to figure out how the recursive form
+    ;; looks right away.
+    (iter (for line on lines)
+	  (for i from 0)
+	  ;; (format t "line: ~a~%" (car line))
+	  ;; (format t "parents: ~a~%" parents-dyn)
+	  (iter (while (and parents-dyn (<= (caar line) (caar parents-dyn))))
+		(pop parents-dyn))
+	  ;; (format t "parents-after: ~a~%" parents-dyn)
+	  (push `(,i . ,(cdar parents-dyn)) res)
+	  (push `(,(caar line) . ,i) parents-dyn))
+    res))
+
+(defparameter test-lines
+  "* a
+* b
+  * c
+    * d
+   * e
+  * f
+   * g
+   * h ")
 
 (let ((count 0))
   (defun emacs-incf ()
@@ -294,29 +323,47 @@
 			  (lambda (x)
 			    (not (cl-ppcre:all-matches "done"
 						       (goal-status x)))))))
-  
+
+(defmacro fart (&body vars)
+  `(progn ,@(mapcar (lambda (x)
+		      `(format t ,(strcat (string-downcase x) ": ~a~%") ,x))
+		    vars)))
+
+(defmacro if-dyn (sym then &optional else)
+  `(if (and (boundp ',sym) ,sym)
+       ,then
+       ,else))
+
+(defmacro! if-debug (&body syms)
+  `(if-dyn ,e!-debug
+	   (fart ,@syms)))
+
 (defun emacs-commit-changes (new-goals-text)
   (format t new-goals-text)
-  (multiple-value-bind (corr modified removed new) (interpret-input new-goals-text)
-    (format t "corr: ~a~%" corr)
-    (format t "modified: ~a~%" modified)
-    (format t "removed: ~a~%" removed)
-    (format t "new: ~a~%" new)
+  (multiple-value-bind (corr modified removed new parents) (interpret-input new-goals-text)
+    (if-debug corr modified removed new parents)
+    (clrhash displayed-goal-line)
+    (clrhash displayed-goals)
     (iter (for id in removed)
 	  (delete-instance-records (gethash id *goals*) :database db-connection)
-	  (remhash id *goals*)
-	  (remhash id displayed-goals))
-    (iter (for (id new-indent new-status new-title) in modified)
+	  (remhash id *goals*))
+    (iter (for (new-lineno new-indent new-status new-title) in new)
+	  (let ((new-id (add-goal new-title new-status)))
+	    (setf (gethash new-id displayed-goals) new-lineno)
+	    (setf (gethash new-lineno displayed-goal-line) new-id)))
+    (iter (for (id new-lineno new-indent new-status new-title) in modified)
 	  (let ((goal (gethash id *goals*)))
 	    (with-slots (title status) goal
 	      (setf title new-title
 		    status new-status))
-	    (update-records-from-instance goal :database db-connection)))
-    (iter (for (new-lineno new-indent new-status new-title) in new)
-	  (let ((new-id (add-goal new-title new-status)))
-	    (setf (gethash new-id displayed-goals) new-lineno)
-	    (update-records-from-instance (gethash new-id *goals*) :database db-connection)))))
-
+	    (setf (gethash id displayed-goals) new-lineno)
+	    (setf (gethash new-lineno displayed-goal-line) id)))
+    (iter (for (lineno id) in-hashtable displayed-goal-line)
+	  (setf (pid (gethash id *goals*))
+		(or (gethash (cdr (assoc lineno parents :test #'equal))
+			     displayed-goal-line)
+		    displayed-project-id))
+	  (update-records-from-instance (gethash id *goals*) :database db-connection))))
 
 (defparameter *flexoplan-port* 4006)
 
@@ -366,10 +413,9 @@ PROJECT-NAME, if given, should be EQUAL to TITLE of some goal.
 If project-name is NIL, all goals are loaded."
   (drop-all-goals)
   (setf *last-id* (get-last-id-from-database))
-  (let ((all-goals (recursively-load-goals-from-database 
-		    (let ((it (car (select 'goal :where [= [slot-value 'goal 'title] project-name]))))
-		      (if it
-			  (goal-id (car it)))))))
+  (setf displayed-project-id (a:aif (car (select 'goal :where [= [slot-value 'goal 'title] project-name]))
+				    (goal-id (car it))))
+  (let ((all-goals (recursively-load-goals-from-database displayed-project-id)))
     (iter (for goal in all-goals)
 	  (setf (gethash (goal-id goal) *goals*) goal))
     t))
@@ -389,9 +435,10 @@ goals (for which MASTER-GOAL-ID is NULL)."
 		       :where [= [slot-value 'goal 'parent-goal-id] master-goal-id]
 		       :database db-connection)))))
     
-(defun recursively-load-goals-from-database (&optional master-goal-id)
+(defun recursively-load-goals-from-database (&optional master-goal-id (indent 0))
   (let ((this-level (load-goals-from-database master-goal-id)))
-    (append this-level
-	    (iter (for goal in this-level)
-		  (appending (recursively-load-goals-from-database (goal-id goal)))))))
+    (iter (for goal in this-level)
+	  (setf (slot-value goal 'indent) indent)
+	  (collect goal)
+	  (appending (recursively-load-goals-from-database (goal-id goal) (+ 2 indent))))))
     
